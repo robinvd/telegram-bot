@@ -1,0 +1,45 @@
+name:                telegram
+version:             0.1.0.0
+-- synopsis:
+-- description:
+homepage:            https://github.com/githubuser/telegram#readme
+license:             BSD3
+license-file:        LICENSE
+author:              Author name here
+maintainer:          example@example.com
+copyright:           2017 Author name here
+category:            Web
+build-type:          Simple
+extra-source-files:  README.md
+cabal-version:       >=1.10
+
+library
+  hs-source-dirs:      src
+  exposed-modules:     Telegram.Timetable
+                     , Telegram
+                     , Telegram.Ext
+                     , Telegram.Help
+  build-depends:       base >= 4.7 && < 5
+                     , aeson
+                     , data-default
+                     , HTTP
+                     , text
+                     , telegram-api
+                     , time
+                     , bytestring
+                     , containers
+                     , http-client
+                     , http-client-tls
+  default-language:    Haskell2010
+
+executable telegram-exe
+  hs-source-dirs:      app
+  main-is:             Main.hs
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  build-depends:       base
+                     , telegram
+                     , telegram-api
+                     , text
+                     , containers
+                     , data-default
+  default-language:    Haskell2010
