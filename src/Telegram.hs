@@ -16,6 +16,7 @@ import           Control.Concurrent (threadDelay)
 
 import Telegram.Ext
 
+-- | available settings with the defaults
 data TelegramSettings = TelegramSettings {
   token :: Token,
   updateDelay :: Int,
@@ -24,27 +25,31 @@ data TelegramSettings = TelegramSettings {
 instance Default TelegramSettings where
   def = TelegramSettings (Token "") 1000000 M.empty errorMessage
 
+-- | Chains a monadic function together feeding the output into the input
+-- | Delays after every iteration
 chainMDelay :: (a -> IO a) -> a -> Int -> IO a
 chainMDelay f a delay = do
   x <- f a
   threadDelay delay
   chainMDelay f x delay
 
+-- | main function
+-- | initializes the settings and checks if token is valid
 telegram :: TelegramSettings -> IO()
 telegram TelegramSettings{..} = do
   manager <- newManager tlsManagerSettings
-  putStrLn $ show token
   botInfo <- getMe token manager
   case botInfo of
     Left error -> do
       T.putStrLn "server start failed on checking bot account! Maybe your token is not valid?"
-      T.appendFile "updates.log" (T.pack . show $ error)
+      print error
     Right Response { result = u } -> do
       putStr "starting loop with account: "
       print $ user_first_name u
       chainMDelay (update manager token actions) 0 3000000
       return ()
 
+-- | Issues a single update to the telegram server and finds the function to run
 update :: Manager -> Token -> M.Map T.Text Action -> Int -> IO Int
 update manager token actions updateId = do
   putStrLn $ "updating " ++ show updateId
@@ -52,8 +57,8 @@ update manager token actions updateId = do
   appendFile "updates.log" $ show update ++ "\n"
   case update of
     Left e -> do
-      putStrLn "Request failed, see logs for more details!"
-      T.appendFile "updates.log" (T.pack . show $ e)
+      putStrLn "Request failed, but not quiting!"
+      print e
       return updateId
     Right Response {result = updates} -> do
       mapM_ (\x -> getAction x >>= send) formatedMsgs
@@ -72,5 +77,7 @@ update manager token actions updateId = do
         f Message {text = Just t, chat = ch} = Just (chat_id ch, T.words t)
         send request = sendMessage token request manager
 
+-- | the default error message if no command is found
+-- | should not be used in multi bot chat groups (TODO)
 errorMessage :: Action
 errorMessage (chatId, input) = return $ sendMessageRequest (T.pack $ show chatId) (head input)

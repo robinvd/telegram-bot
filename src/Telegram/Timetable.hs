@@ -9,6 +9,7 @@ import           Data.Aeson.Types
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Lazy.Char8 as BL8 (pack)
 import qualified Data.Map as M
+import Data.Maybe
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import           Data.Time (getCurrentTime, utctDay)
@@ -19,6 +20,7 @@ import           Web.Telegram.API.Bot
 
 import           Telegram.Ext
 
+-- | data types that are mainly used for automatic parsing of the JSON input
 data Activity = Activity {
   times :: [Time],
   location :: T.Text,
@@ -37,11 +39,9 @@ instance Show Activity where
 instance TShow Activity where
   tShow Activity{..} = T.unlines [T.concat (map tShow times), description, location]
 
+-- | same as show but now for T.Text
 class TShow a where
   tShow :: a -> T.Text
-
-tPrint :: TShow a => a -> IO ()
-tPrint a = T.putStrLn $ tShow a
 
 data Time = Time {
   start :: T.Text,
@@ -58,9 +58,11 @@ instance Show Time where
 instance TShow Time where
   tShow Time{..} = T.take 5 . T.drop 11 $ start
 
-acts :: Value -> Parser [Activity]
-acts = withObject "activity" $ \o -> o .: "Activities"  -- or just (.: "data")
+-- | helper function so not needed info is discarded from the JSON
+parseHelper :: Value -> Parser [Activity]
+parseHelper = withObject "activity" $ \o -> o .: "Activities"
 
+-- | types and functions for storing the preferences, currently reads the file everytime!
 type Database = M.Map Int Entry
 
 data Entry = Entry {
@@ -68,12 +70,6 @@ data Entry = Entry {
   groups :: [T.Text] } deriving (Generic, Ord, Eq)
 instance ToJSON Entry
 instance FromJSON Entry
-
-timetableURL :: String -> String
-timetableURL x = "http://rooster.rug.nl/api/Schedule?CourseCodes=" ++ x ++ "&language=EN&Locations=&Instructors=&StudentSetCodes=&LayoutMode=Wide&Mode=&intern=true"
-
-get :: String -> IO String
-get courseCode = fmap (init . tail) $ simpleHTTP (getRequest $ timetableURL courseCode) >>= getResponseBody
 
 readDatabase :: IO Database
 readDatabase = do
@@ -85,6 +81,16 @@ readDatabase = do
 writeDatabase :: Database -> IO ()
 writeDatabase = BL.writeFile "database" . encode
 
+-- | function for fetching the JSON file
+timetableURL :: String -> String
+timetableURL x = "http://rooster.rug.nl/api/Schedule?CourseCodes=" ++ x ++ "&language=EN&Locations=&Instructors=&StudentSetCodes=&LayoutMode=Wide&Mode=&intern=true"
+
+-- | issues a get request to the rug server
+-- | (TODO) use Data.Http.Client so we have one less import
+get :: String -> IO String
+get courseCode = simpleHTTP (getRequest $ timetableURL courseCode) >>= getResponseBody
+
+-- | stores someones preferences in the database
 timetableRegister :: Action
 timetableRegister (chatId, _:courseCode:unparsedGroups) = do
   readDatabase >>= writeDatabase . M.insert chatId Entry {..}
@@ -94,6 +100,8 @@ timetableRegister (chatId, _:courseCode:unparsedGroups) = do
     groups = T.splitOn "," . T.unwords $ unparsedGroups
 timetableRegister (chatId, _) = return $ sendMessageRequest (T.pack $ show chatId) "please input cousecode and groups. See \"/help timetableRegister for info\""
 
+-- | main function that is called on "/timetable"\
+-- | could be merged with getMessage
 timetable :: Action
 timetable (chatId, _) = do
   database <- readDatabase
@@ -109,16 +117,16 @@ getMessage chatId entry = do
     Right "" -> return $ sendMessageRequest (T.pack $ show chatId) "No activities today"
     Right x  -> return $ sendMessageRequest (T.pack $ show chatId) (x)
 
+-- | functions below are a bit hacky
+-- | They parse and filter the JSON to only the relevant Activies
 getActivities :: Entry -> IO (Either T.Text [Activity])
 getActivities Entry{..} = do
-  x <- get $ T.unpack courseCode
-  (_, week, day) <- getCurrentTime >>= return . toWeekDate . utctDay
-  case parseEither acts =<< maybeToEither (decode (BL8.pack x)) :: Either String [Activity] of
-    Left x -> return $ Left (T.pack x)
-    Right x -> return . Right . filter (fltrGroups groups) . concatMap (fltrTime week day) $ x
-  where
-    maybeToEither Nothing = Left "failed parsing, is the coursecode right?"
-    maybeToEither (Just x) = Right x
+  fullJson <- get $ T.unpack courseCode
+  (_, week, day) <- toWeekDate . utctDay <$> getCurrentTime
+  case mapMaybe (parseMaybe parseHelper) . fromJust . decode . BL8.pack $ fullJson of
+    [] -> return $ Left "error"
+    x  -> return . Right . filter (fltrGroups groups) . concatMap (fltrTime week day) $ concat x
+
 fltrGroups :: [T.Text] -> Activity -> Bool
 fltrGroups groups acts = or $ ((==""):(T.isInfixOf <$> groups)) <*> [students acts]
 
@@ -128,9 +136,3 @@ fltrTime cweek cday act
   | (week . head . times) act == cweek && (day . head . times) act == cday =
     act {times = [(head . times) act]}: fltrTime cweek cday act{times = (tail . times) act}
   | otherwise = fltrTime cweek cday act {times = (tail. times) act}
-
-myGroups :: [T.Text]
-myGroups =
-  [ "CS 3"
-  , "Pre-master Informatica Hanze en Noordelijke Hogeschool"
-  , "Pre-master Wiskunde RuG"]
