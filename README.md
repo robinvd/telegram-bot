@@ -2,6 +2,15 @@
 
 Haskell library/app for easy interacting with telegram
 
+# how to use!
+
+message the bot with:
+
+`/tr <courseCode> <groups>`
+where courseCode is the string after `CourseCodes=` until `&` on `rooster.rug.nl` and groups is a ',' seperated list of groups. They appear in the remarks section of the same page. Classes without a remark are always selected
+
+now you can message the bot with `/t` or `/timetable` and get your timetable
+
 # install
 
 `git clone https://github.com/robinvd/telegram-bot`
