@@ -35,7 +35,7 @@ library
 executable telegram-exe
   hs-source-dirs:      app
   main-is:             Main.hs
-  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+--   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
   build-depends:       base
                      , telegram
                      , telegram-api
