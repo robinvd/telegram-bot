@@ -18,4 +18,9 @@ main = do
     [] -> putStrLn "not token given, quiting!"
     _  -> telegram def {token = Token $ T.pack $ head args, actions = actions}
     where
-      actions = M.fromList [("/t", timetable), ("/h", helpInfo)]
+      actions = M.fromList [ ("/t", timetable)
+                           , ("/timetable", timetable)
+                           , ("/tr", timetableRegister)
+                           , ("/timetableRegister", timetableRegister)
+                           , ("/h", helpInfo)
+                           , ("/help", helpInfo)]

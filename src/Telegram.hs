@@ -33,6 +33,7 @@ chainMDelay f a delay = do
 telegram :: TelegramSettings -> IO()
 telegram TelegramSettings{..} = do
   manager <- newManager tlsManagerSettings
+  putStrLn $ show token
   botInfo <- getMe token manager
   case botInfo of
     Left error -> do
@@ -68,8 +69,8 @@ update manager token actions updateId = do
         formatedMsgs = mapMaybe f msgs
         f :: Message -> Maybe (Int, [T.Text])
         f Message {text = Nothing} = Nothing
-        f Message {text = Just t, chat = ch} = Just (chat_id ch, T.lines t)
+        f Message {text = Just t, chat = ch} = Just (chat_id ch, T.words t)
         send request = sendMessage token request manager
 
 errorMessage :: Action
-errorMessage (chatId, input) = return $ sendMessageRequest (T.pack $ show chatId) ("Message not understood :")
+errorMessage (chatId, input) = return $ sendMessageRequest (T.pack $ show chatId) (head input)
