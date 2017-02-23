@@ -10,6 +10,7 @@ import           Data.Aeson
 import           Data.Aeson.Types
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Lazy.Char8 as BL8 (pack)
+import           Data.List (sort)
 import qualified Data.Map as M
 import           Data.Maybe
 import qualified Data.Text as T
@@ -28,7 +29,10 @@ data Activity = Activity {
   times :: [Time],
   location :: T.Text,
   description :: T.Text,
-  students :: T.Text }
+  activityTypeDescription :: T.Text,
+  students :: T.Text } deriving (Eq)
+instance Ord Activity where
+  compare (Activity {times = times1}) (Activity {times = times2}) = compare times1 times2
 
 instance FromJSON Activity where
   parseJSON = withObject "Activity" $ \o -> do
@@ -36,22 +40,23 @@ instance FromJSON Activity where
     location <- o .: "LocationsJoined"
     description <- o .: "ModuleDescription"
     activityDescription <- o .: "ActivityDescription"
+    activityTypeDescription <- o .: "ActivityTypeDescription"
     studentSets <- o .: "StudentSetsJoined"
     let students = activityDescription `T.append` studentSets
     return Activity{..}
 instance Show Activity where
   show Activity{..} = T.unpack $ T.unlines $ [description, location]
 instance TShow Activity where
-  tShow Activity{..} = T.unlines [T.concat (map tShow times), description, location]
+  tShow Activity{..} = T.unlines [T.concat ((map tShow times) ++ [" - "] ++ [activityTypeDescription]), description, location]
 
 -- | same as show but now for T.Text
 class TShow a where
   tShow :: a -> T.Text
 
 data Time = Time {
-  start :: T.Text,
   week :: Int,
-  day :: Int} deriving (Eq)
+  day :: Int,
+  start :: T.Text} deriving (Eq, Ord)
 instance FromJSON Time where
   parseJSON = withObject "Time" $ \o -> do
     start <- o .: "Start"
@@ -161,7 +166,7 @@ getActivities Entry{..} = do
   (_, week, day) <- toWeekDate . utctDay <$> getCurrentTime
   case mapMaybe (parseMaybe parseHelper) . fromMaybe [] . decode $ fullJson of
     [] -> return $ Left "parsing error"
-    x  -> return . Right . filter (fltrGroups groups) . concatMap (fltrTime week day) $ concat x
+    x  -> return . Right . sort . filter (fltrGroups groups) . concatMap (fltrTime week day) $ concat x
 
 fltrGroups :: [T.Text] -> Activity -> Bool
 fltrGroups groups acts = or $ ((==""):(T.isInfixOf <$> groups)) <*> [students acts]
