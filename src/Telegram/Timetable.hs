@@ -14,15 +14,23 @@ import           Data.List (sort)
 import qualified Data.Map as M
 import           Data.Maybe
 import qualified Data.Text as T
+import qualified Data.Text.Read as T
 import           Data.Time (getCurrentTime, utctDay)
 import           Data.Time.Calendar.WeekDate (toWeekDate)
-import           Network.HTTP (simpleHTTP, getRequest, getResponseBody)
 import           GHC.Generics
+import           Network.HTTP (simpleHTTP, getRequest, getResponseBody)
 import           Web.Telegram.API.Bot
 
 import           Telegram.Ext
 
+eitherToMaybe :: Either a b -> Maybe b
+eitherToMaybe (Left _) = Nothing
+eitherToMaybe (Right x) = Just x
 
+(!!?) :: [a] -> Int -> Maybe a
+(x:_) !!? 0 = Just x
+[] !!? 0 = Nothing
+(_:xs) !!? n = xs !!? (n-1)
 
 -- | data types that are mainly used for automatic parsing of the JSON input
 data Activity = Activity {
@@ -111,12 +119,13 @@ get courseCode = simpleHTTP (getRequest $ timetableURL courseCode) >>= getRespon
 -- | registers 2 commands "/t" and "/tr"
 -- | (TODO) should use TVar instead of MVar
 -- | (TODO) use an actual database instead of a json file
--- | (TODO) save settings on quit
 timetable :: Setup
 timetable = do
   dbRef <- liftIO $ newMVar =<< readDatabase
   registerAction "/t" $ timetableMain dbRef
+  registerAction "/timetable" $ timetableMain dbRef
   registerAction "/tr" $ timetableRegister dbRef
+  registerAction "/timetableregister" $ timetableRegister dbRef
   registerCleanUp (readMVar dbRef >>= writeDatabase)
 
 
@@ -137,19 +146,25 @@ timetableRegister _ (chatId, _) = return $ sendMessageRequest (T.pack $ show cha
 
 -- | function that gets called on "/t"
 -- | could be merged with getMessage
+-- | (TODO) clean this up a bit
 timetableMain :: MVar Database -> Action
-timetableMain dbRef (chatId, _) = do
+timetableMain dbRef (chatId, xs) = do
+  date <- (\(y, w, d) -> (fromInteger y, w + arg `div` 7, (d + arg) `mod` 7)) <$> toWeekDate . utctDay <$> getCurrentTime
   database <- readMVar dbRef
   case M.lookup chatId database of
     Nothing -> return $ sendMessageRequest (T.pack $ show chatId)
       "please register fist with /tr"
-    Just entry -> getMessage chatId entry
+    Just entry -> getMessage date chatId entry
+  where
+    arg :: Int
+    arg = parse xs
+    parse :: [T.Text] -> Int
+    parse xs = fromMaybe 0 $ Just . fst =<< eitherToMaybe . T.signed T.decimal =<< xs !!? 1
 
 
-
-getMessage :: Int -> Entry -> IO SendMessageRequest
-getMessage chatId entry = do
-  activities <- getActivities entry
+getMessage :: (Int, Int, Int) -> Int -> Entry -> IO SendMessageRequest
+getMessage date chatId entry = do
+  activities <- getActivities date entry
   case fmap (T.unlines . map tShow) activities of
     Left _ -> return $ sendMessageRequest (T.pack $ show chatId)
       "failed parsing is the CourseCode right?"
@@ -160,10 +175,9 @@ getMessage chatId entry = do
 
 -- | functions below are a bit hacky
 -- | They parse and filter the JSON to only the relevant Activies
-getActivities :: Entry -> IO (Either T.Text [Activity])
-getActivities Entry{..} = do
+getActivities :: (Int,Int,Int) -> Entry -> IO (Either T.Text [Activity])
+getActivities (_, week, day) Entry{..} = do
   fullJson <- BL8.pack <$> (get $ T.unpack courseCode)
-  (_, week, day) <- toWeekDate . utctDay <$> getCurrentTime
   case mapMaybe (parseMaybe parseHelper) . fromMaybe [] . decode $ fullJson of
     [] -> return $ Left "parsing error"
     x  -> return . Right . sort . filter (fltrGroups groups) . concatMap (fltrTime week day) $ concat x
