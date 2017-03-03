@@ -33,6 +33,13 @@ eitherToMaybe (Right x) = Just x
 (_:xs) !!? n = xs !!? (n-1)
 
 -- | data types that are mainly used for automatic parsing of the JSON input
+data Course = Course {
+  courseCode :: T.Text,
+  courseName :: T.Text,
+  activities :: [Activity]}
+instance TShow Course where
+  tShow Course{..} = T.unlines (courseName: map tShow activities)
+
 data Activity = Activity {
   times :: [Time],
   location :: T.Text,
@@ -80,11 +87,11 @@ instance TShow Time where
 parseHelper :: Value -> Parser [Activity]
 parseHelper = withObject "activity" $ \o -> o .: "Activities"
 
--- | types and functions for storing the preferences, currently reads the file everytime!
-type Database = M.Map Int Entry
+-- | types and functions for storing the preferences
+type Database = M.Map Int [Entry]
 
 data Entry = Entry {
-  courseCode :: T.Text,
+  entryCourseCode :: T.Text,
   groups :: [T.Text] } deriving (Generic, Ord, Eq)
 instance ToJSON Entry
 instance FromJSON Entry
@@ -124,6 +131,7 @@ timetable = do
   dbRef <- liftIO $ newMVar =<< readDatabase
   registerAction "/t" $ timetableMain dbRef
   registerAction "/timetable" $ timetableMain dbRef
+  registerAction "/reset" $ timetableReset dbRef
   registerAction "/tr" $ timetableRegister dbRef
   registerAction "/timetableregister" $ timetableRegister dbRef
   registerCleanUp (readMVar dbRef >>= writeDatabase)
@@ -132,15 +140,21 @@ timetable = do
 
 -- | stores someones preferences in the database
 timetableRegister :: MVar Database -> Action
-timetableRegister dbRef (chatId, _:courseCode:unparsedGroups) = do
-  -- readDatabase >>= writeDatabase . M.insert chatId Entry {..}
-  modifyMVar dbRef (return . (\x -> (x,())) . M.insert chatId Entry {..})
+timetableRegister dbRef (chatId, _:entryCourseCode:unparsedGroups) = do
+  modifyMVar dbRef (return . (\x -> (x,())) . M.insertWith (++) chatId [Entry {..}])
   return $ sendMessageRequest (T.pack $ show chatId) "done"
   where
     groups :: [T.Text]
     groups = T.splitOn "," . T.unwords $ unparsedGroups
 timetableRegister _ (chatId, _) = return $ sendMessageRequest (T.pack $ show chatId)
   "please input cousecode and groups. See \"/help timetableRegister\" for info\""
+
+
+
+timetableReset :: MVar Database -> Action
+timetableReset dbRef (chatId, _) = do
+  modifyMVar dbRef (return . (\x -> (x,())) . M.delete chatId)
+  return $ sendMessageRequest (T.pack $ show chatId) "done"
 
 
 
@@ -154,7 +168,7 @@ timetableMain dbRef (chatId, xs) = do
   case M.lookup chatId database of
     Nothing -> return $ sendMessageRequest (T.pack $ show chatId)
       "please register fist with /tr"
-    Just entry -> getMessage date chatId entry
+    Just entries -> getMessage date chatId entries
   where
     arg :: Int
     arg = parse xs
@@ -162,25 +176,27 @@ timetableMain dbRef (chatId, xs) = do
     parse xs = fromMaybe 0 $ Just . fst =<< eitherToMaybe . T.signed T.decimal =<< xs !!? 1
 
 
-getMessage :: (Int, Int, Int) -> Int -> Entry -> IO SendMessageRequest
-getMessage date chatId entry = do
-  activities <- getActivities date entry
-  case fmap (T.unlines . map tShow) activities of
-    Left _ -> return $ sendMessageRequest (T.pack $ show chatId)
-      "failed parsing is the CourseCode right?"
-    Right "" -> return $ sendMessageRequest (T.pack $ show chatId) "No activities today"
-    Right x  -> return $ sendMessageRequest (T.pack $ show chatId) (x)
+-- | (TODO) should not use head entry, as it is partial
+-- | (TODO) display if an course failed to parse
+getMessage :: (Int, Int, Int) -> Int -> [Entry] -> IO SendMessageRequest
+getMessage date chatId entries = do
+  activities <- mapM (getActivities date) entries :: IO [Maybe [Activity]]
+  case (T.unlines . map tShow . sort. concat . catMaybes) (activities) of
+    --Nothing -> return $ sendMessageRequest (T.pack $ show chatId)
+    --  "failed parsing is the CourseCode right?"
+    "" -> return $ sendMessageRequest (T.pack $ show chatId) "No activities today"
+    x  -> return $ sendMessageRequest (T.pack $ show chatId) (x)
 
 
 
 -- | functions below are a bit hacky
 -- | They parse and filter the JSON to only the relevant Activies
-getActivities :: (Int,Int,Int) -> Entry -> IO (Either T.Text [Activity])
+getActivities :: (Int, Int, Int) -> Entry -> IO (Maybe [Activity])
 getActivities (_, week, day) Entry{..} = do
-  fullJson <- BL8.pack <$> (get $ T.unpack courseCode)
+  fullJson <- BL8.pack <$> (get $ T.unpack entryCourseCode)
   case mapMaybe (parseMaybe parseHelper) . fromMaybe [] . decode $ fullJson of
-    [] -> return $ Left "parsing error"
-    x  -> return . Right . sort . filter (fltrGroups groups) . concatMap (fltrTime week day) $ concat x
+    [] -> return Nothing
+    x  -> return . Just . filter (fltrGroups groups) . concatMap (fltrTime week day) $ concat x
 
 fltrGroups :: [T.Text] -> Activity -> Bool
 fltrGroups groups acts = or $ ((==""):(T.isInfixOf <$> groups)) <*> [students acts]
