@@ -43,4 +43,6 @@ executable telegram-exe
                      , text
                      , containers
                      , data-default
+                     , http-client
+                     , http-client-tls
   default-language:    Haskell2010

@@ -51,10 +51,7 @@ telegram TelegramSettings{..} setup = do
   installHandler sigINT (termHandler quitting) Nothing
   manager <- newManager tlsManagerSettings
   botInfo <- getMe token manager
-  -- let setup2 = execWriterT $ setup :: WriterT [IO ()] IO (M.Map T.Text Action)
-  -- (actions, cleanups) <- runWriterT setup2 :: IO (M.Map T.Text Action, [IO ()])
   (actions, cleanups) <- runWriterT . execWriterT $ setup
-  -- cleanups <- (execWriterT . lift) setup
   case botInfo of
     Left e-> do
       T.putStrLn "server start failed on checking bot account! Maybe your token is not valid?"
@@ -66,7 +63,7 @@ telegram TelegramSettings{..} setup = do
       takeMVar quitting
       killThread fid
       putStrLn "signal recieved, quiting! running cleanup functions"
-      foldr (>>) (return ()) cleanups
+      sequence_ cleanups
       return ()
 
 -- | Issues a single update to the telegram server and finds the function to run
@@ -83,21 +80,21 @@ update manager token actions updateId = do
       print e
       return updateId
     Right Response {result = updates} -> do
-      mapM_ (\x -> forkIO . void . send =<< getAction x) formatedMsgs
+      mapM_ ((forkIO . void . send) <=< getAction) formatedMsgs
       return $ maximum $ updateId:map ((1+) . update_id) updates
       where
-        getAction :: (Int, [T.Text]) -> IO SendMessageRequest
-        getAction input@(_ , x) = case M.lookup (head x) actions of
+        getAction :: (ChatId, [T.Text]) -> IO SendMessageRequest
+        getAction input@(_, x) = case M.lookup (head x) actions of
           Just act -> act input
           Nothing -> errorMessage input
         msgs :: [Message]
         msgs = mapMaybe message updates
-        formatedMsgs :: [(Int, [T.Text])]
+        formatedMsgs :: [(ChatId, [T.Text])]
         formatedMsgs = mapMaybe f msgs
-        f :: Message -> Maybe (Int, [T.Text])
+        f :: Message -> Maybe (ChatId, [T.Text])
         f Message {text = Nothing} = Nothing
-        f Message {text = Just t, chat = ch} = Just (chat_id ch, T.words t)
+        f Message {text = Just t, chat = ch} = Just (ChatId . toInteger . chat_id $ ch, T.words t)
         send request = sendMessage token request manager
 
 errorMessage :: Action
-errorMessage (chatId, input) = return $ sendMessageRequest (T.pack $ show chatId) (head input)
+errorMessage (chatId, input) = return $ sendMessageRequest chatId (head input)

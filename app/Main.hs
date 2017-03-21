@@ -2,7 +2,6 @@
 
 module Main where
 
-import           Data.Default (def)
 import           System.Environment (getArgs)
 import           Web.Telegram.API.Bot
 import           Telegram
@@ -10,7 +9,6 @@ import           Telegram.Ext
 import           Telegram.Help
 import           Telegram.Timetable
 import qualified Data.Text as T (pack)
-import qualified Data.Map as M (fromList)
 
 
 
@@ -34,4 +32,4 @@ main = do
 -- | the default error message if no command is found
 -- | (TODO) should not be used in multi bot chat groups
 errorMessage :: Action
-errorMessage (chatId, input) = return $ sendMessageRequest (T.pack $ show chatId) (head input)
+errorMessage (chatId, input) = return $ sendMessageRequest chatId (head input)
