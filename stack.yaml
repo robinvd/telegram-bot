@@ -24,11 +24,11 @@ packages:
 # - some-directory
 # - https://example.com/foo/bar/baz-0.0.2.tar.gz
 - '.'
-# - location:
-#    git: https://github.com/klappvisor/haskell-telegram-api
-#    commit: fe09a8aed89d74fb9a809a04edaab0c11e89a47d
-- location: ../haskell-telegram-api/
-#   extra-dep: true
+- location:
+   git: https://github.com/klappvisor/haskell-telegram-api
+   commit: fe09a8aed89d74fb9a809a04edaab0c11e89a47d
+# - location: ../haskell-telegram-api/
+  extra-dep: true
 #  subdirs:
 #  - auto-update
 #  - wai
