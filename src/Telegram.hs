@@ -93,7 +93,7 @@ update manager token actions updateId = do
         formatedMsgs = mapMaybe f msgs
         f :: Message -> Maybe (ChatId, [T.Text])
         f Message {text = Nothing} = Nothing
-        f Message {text = Just t, chat = ch} = Just (ChatId . toInteger . chat_id $ ch, T.words t)
+        f Message {text = Just t, chat = ch} = Just (ChatId . chat_id $ ch, T.words t)
         send request = sendMessage token request manager
 
 errorMessage :: Action
